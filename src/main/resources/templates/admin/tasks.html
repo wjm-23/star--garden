@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>专注任务管理 · 星芽花园</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" th:href="@{/css/stargarden.css}">
+  <style>
+    .sg-card { padding: 26px 28px; border-radius: 24px; margin-bottom: 24px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+    .form-field label { display:block; font-size: 0.8rem; color:#166534; font-weight:600; margin-bottom:6px; }
+    .form-field input, .form-field textarea, .form-field select {
+      width: 100%; padding: 11px 14px; border-radius: 12px;
+      border: 1.5px solid #d1fae5; background: #f0fdf4; color:#064e3b; font-size:0.92rem; outline:none;
+    }
+    .form-field input:focus, .form-field textarea:focus, .form-field select:focus {
+      border-color:#22c55e; box-shadow:0 0 0 4px rgba(34,197,94,0.12);
+    }
+    .form-field.full { grid-column: 1 / -1; }
+    .chk-row { display:flex; align-items:center; gap:8px; margin-top:24px; }
+    .chk-row input { width:18px; height:18px; }
+    .admin-table { width:100%; border-collapse: separate; border-spacing: 0 10px; }
+    .admin-table th { color: rgba(255,255,255,0.6); font-size:0.78rem; text-align:left; padding: 0 16px 6px; letter-spacing:1px; }
+    .admin-table td { background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      padding: 14px 16px; color:#fff; font-size:0.9rem; border:1px solid rgba(255,255,255,0.06); }
+    .admin-table tr td:first-child { border-top-left-radius:16px; border-bottom-left-radius:16px; }
+    .admin-table tr td:last-child { border-top-right-radius:16px; border-bottom-right-radius:16px; }
+    .admin-table .t-icon { font-size:1.5rem; }
+    .sg-btn-sm { padding:7px 14px; font-size:0.82rem; border-radius:10px; }
+    .badge-on { color:#4ade80; font-weight:700; }
+    .badge-off { color:#f87171; font-weight:700; }
+    @media (max-width:768px){ .form-grid{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body class="sg-body">
+  <div class="sg-aurora"></div>
+  <div class="sg-stars" id="sgStars"></div>
+
+  <div class="sg-app">
+    <aside class="sg-sidebar">
+      <div class="sg-sidebar-brand"><h4>🌿 星芽花园</h4><div class="sub">ADMIN</div></div>
+      <ul class="sg-menu">
+        <li><a href="/tasks"><span class="icon">🏠</span>任务大厅</a></li>
+        <li><a href="/garden"><span class="icon">🌱</span>我的花园</a></li>
+        <li><a href="/encyclopedia"><span class="icon">📚</span>植物图鉴</a></li>
+        <li><a href="/history"><span class="icon">📅</span>专注历史</a></li>
+        <li><a href="/achievements"><span class="icon">🏆</span>成就中心</a></li>
+        <li><a href="/friends"><span class="icon">👥</span>好友花园</a></li>
+        <li><a href="/profile"><span class="icon">👤</span>个人中心</a></li>
+        <li><a href="/admin/users"><span class="icon">👥</span>用户管理</a></li>
+        <li><a href="/admin/plants"><span class="icon">🌿</span>植物管理</a></li>
+        <li><a class="active" href="/admin/tasks"><span class="icon">⚙️</span>专注任务管理</a></li>
+        <li><a class="sg-menu-logout" href="/logout"><span class="icon">🚪</span>退出登录</a></li>
+      </ul>
+    </aside>
+
+    <main class="sg-main">
+      <h1 class="sg-page-title">⚙️ 专注任务管理</h1>
+      <p class="sg-page-subtitle">添加 / 编辑专注任务，并为其关联奖励植物 🌱</p>
+
+      <div class="sg-alert" th:if="${msg}" th:text="${msg}"></div>
+
+      <!-- 新增 / 编辑 表单 -->
+      <div class="sg-card">
+        <h3 style="color:#fff; margin-bottom:18px;">➕ 新增 / 编辑任务</h3>
+        <form action="/admin/tasks/save" method="post">
+          <input type="hidden" id="f_id" name="id">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>任务名称</label>
+              <input type="text" id="f_name" name="taskName" placeholder="如：学习" required>
+            </div>
+            <div class="form-field">
+              <label>图标（emoji）</label>
+              <input type="text" id="f_icon" name="icon" placeholder="📚" maxlength="4">
+            </div>
+            <div class="form-field">
+              <label>默认专注时长（分钟）</label>
+              <input type="number" id="f_min" name="defaultMinutes" min="1" max="180" value="25">
+            </div>
+            <div class="form-field">
+              <label>排序</label>
+              <input type="number" id="f_order" name="sortOrder" min="0" value="0">
+            </div>
+            <div class="form-field full">
+              <label>奖励植物</label>
+              <select id="f_pid" name="plantId" required>
+                <option value="">— 请选择关联植物 —</option>
+                <option th:each="p : ${plants}" th:value="${p.id}" th:text="${p.name}"></option>
+              </select>
+            </div>
+            <div class="form-field full">
+              <label>任务描述</label>
+              <textarea id="f_desc" name="description" rows="2" placeholder="一句话描述这个任务"></textarea>
+            </div>
+          </div>
+          <div class="chk-row">
+            <input type="checkbox" id="f_enabled" name="taskEnabled" value="true" checked>
+            <label for="f_enabled" style="margin:0; color:#fff;">启用（关闭后用户任务大厅不再显示）</label>
+          </div>
+          <div style="margin-top:20px; display:flex; gap:12px;">
+            <button type="submit" class="sg-btn sg-btn-primary">💾 保存任务</button>
+            <button type="reset" class="sg-btn sg-btn-outline" onclick="resetForm()">↺ 清空</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 任务列表 -->
+      <div class="sg-card">
+        <h3 style="color:#fff; margin-bottom:16px;">📋 全部任务</h3>
+        <table class="admin-table">
+          <thead>
+            <tr><th>图标</th><th>任务</th><th>描述</th><th>时长</th><th>奖励植物</th><th>排序</th><th>状态</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr th:each="t : ${taskList}">
+              <td class="t-icon" th:text="${t.icon}">📚</td>
+              <td th:text="${t.taskName}">学习</td>
+              <td th:text="${t.description}">描述</td>
+              <td th:text="${t.defaultMinutes + ' 分钟'}">25 分钟</td>
+              <td th:text="${t.plantName}">智慧藤</td>
+              <td th:text="${t.sortOrder}">0</td>
+              <td>
+                <span th:if="${t.enabled}" class="badge-on">● 启用</span>
+                <span th:unless="${t.enabled}" class="badge-off">○ 禁用</span>
+              </td>
+              <td>
+                <button type="button" class="sg-btn sg-btn-sm sg-btn-outline"
+                        th:attr="data-id=${t.id},data-name=${t.taskName},data-desc=${t.description},data-min=${t.defaultMinutes},data-pid=${t.plantId},data-icon=${t.icon},data-order=${t.sortOrder},data-enabled=${t.enabled}"
+                        onclick="editTask(this)">编辑</button>
+                <a class="sg-btn sg-btn-sm sg-btn-danger"
+                   th:href="@{/admin/tasks/delete/{id}(id=${t.id})}"
+                   onclick="return confirm('确定删除该任务？');">删除</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sg-footer">© 202339170206 魏佳冕 · 星芽花园 | 🌱 专注让生活开花</div>
+    </main>
+  </div>
+
+  <script th:src="@{/js/stargarden.js}"></script>
+  <script>
+    createStarBackground('sgStars', { count: 180, shooting: true });
+
+    function editTask(btn) {
+      const d = btn.dataset;
+      document.getElementById('f_id').value = d.id;
+      document.getElementById('f_name').value = d.name || '';
+      document.getElementById('f_desc').value = d.desc || '';
+      document.getElementById('f_min').value = d.min || 25;
+      document.getElementById('f_pid').value = d.pid || '';
+      document.getElementById('f_icon').value = d.icon || '';
+      document.getElementById('f_order').value = d.order || 0;
+      document.getElementById('f_enabled').checked = (d.enabled === 'true');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetForm() {
+      document.getElementById('f_id').value = '';
+    }
+  </script>
+</body>
+</html>

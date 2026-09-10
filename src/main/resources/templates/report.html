@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>数据报告 - 星芽花园</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="/lib/echarts.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a2a3a 0%, #0d1b2a 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', 'Poppins', 'Microsoft YaHei', sans-serif;
+        }
+        .container { padding-top: 30px; padding-bottom: 40px; }
+        .home-btn {
+            position: fixed; bottom: 25px; right: 25px;
+            background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+            border-radius: 50px; padding: 12px 24px; color: white;
+            text-decoration: none; transition: all 0.3s; z-index: 100;
+        }
+        .home-btn:hover { background: rgba(255,215,0,0.8); color: #1a2a3a; }
+        .page-card {
+            background: rgba(255,255,255,0.1); backdrop-filter: blur(15px);
+            border-radius: 30px; padding: 30px;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            margin-bottom: 25px;
+        }
+        .page-title { color: #FFD700; margin-bottom: 8px; }
+        .sub-title { color: rgba(255,255,255,0.6); font-size: 0.9rem; margin-bottom: 20px; }
+        .chart-box { width: 100%; height: 360px; }
+        .range-btn {
+            border: 1px solid rgba(255,255,255,0.3); color: white; background: transparent;
+            border-radius: 50px; padding: 4px 16px; font-size: 0.85rem; margin-right: 8px;
+        }
+        .range-btn.active { background: linear-gradient(135deg,#FFD700,#FFA500); color: #1a2a3a; border: none; }
+        footer { text-align: center; color: rgba(255,255,255,0.5); font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="page-card">
+        <h2 class="page-title">📈 专注数据报告</h2>
+        <p class="sub-title">多维可视化呈现你的专注行为数据（ECharts 驱动）</p>
+
+        <!-- 趋势 -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 style="color:white;">每日专注趋势</h5>
+            <div>
+                <button class="range-btn active" onclick="loadTrend(7, this)">近 7 天</button>
+                <button class="range-btn" onclick="loadTrend(30, this)">近 30 天</button>
+                <button class="range-btn" onclick="loadTrend(90, this)">近 90 天</button>
+            </div>
+        </div>
+        <div id="trendChart" class="chart-box"></div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="page-card">
+                <h5 style="color:white;">类别分布（专注时长占比）</h5>
+                <div id="catChart" class="chart-box"></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="page-card">
+                <h5 style="color:white;">黄金专注时段</h5>
+                <div id="hourChart" class="chart-box"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-card">
+        <h5 style="color:white;">专注热力日历（近 90 天）</h5>
+        <div id="heatChart" style="width:100%; height:260px;"></div>
+    </div>
+
+    <footer>©  202339170206 魏佳冕 - 星芽花园</footer>
+</div>
+
+<a href="/index" class="home-btn">🏠 返回花园</a>
+
+<script>
+    const GOLD = '#FFD700';
+    const textStyle = { color: 'rgba(255,255,255,0.85)' };
+
+    // ===== 趋势图 =====
+    const trendChart = echarts.init(document.getElementById('trendChart'));
+    function renderTrend(data) {
+        trendChart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'axis' },
+            grid: { left: 50, right: 20, top: 30, bottom: 30 },
+            xAxis: { type: 'category', data: data.map(d => d.date.slice(5)), axisLabel: textStyle },
+            yAxis: { type: 'value', name: '分钟', axisLabel: textStyle, nameTextStyle: textStyle },
+            series: [{
+                type: 'line', smooth: true, data: data.map(d => d.minutes),
+                lineStyle: { color: GOLD, width: 3 },
+                itemStyle: { color: GOLD },
+                areaStyle: { color: 'rgba(255,215,0,0.15)' }
+            }]
+        });
+    }
+    function loadTrend(days, btn) {
+        document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        fetch('/api/report/trend?days=' + days)
+            .then(r => r.json()).then(res => { if (res.success) renderTrend(res.trend); });
+    }
+
+    // ===== 类别饼图 =====
+    const catChart = echarts.init(document.getElementById('catChart'));
+    fetch('/api/report/category').then(r => r.json()).then(res => {
+        if (!res.success) return;
+        const colors = ['#FFD700','#FFA500','#2ecc71','#3498db','#9b59b6','#e74c3c','#1abc9c'];
+        catChart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'item', formatter: '{b}: {c} 分钟 ({d}%)' },
+            legend: { bottom: 0, textStyle: textStyle },
+            series: [{
+                type: 'pie', radius: ['38%', '65%'],
+                data: res.items.map((it, i) => ({
+                    name: it.category, value: it.minutes,
+                    itemStyle: { color: colors[i % colors.length] }
+                })),
+                label: { color: 'rgba(255,255,255,0.85)', formatter: '{b}\n{d}%' }
+            }]
+        });
+    });
+
+    // ===== 时段柱状图 =====
+    const hourChart = echarts.init(document.getElementById('hourChart'));
+    fetch('/api/report/best-hours').then(r => r.json()).then(res => {
+        if (!res.success) return;
+        let maxIdx = 0;
+        res.items.forEach((it, i) => { if (it.minutes > res.items[maxIdx].minutes) maxIdx = i; });
+        hourChart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'axis' },
+            grid: { left: 50, right: 20, top: 30, bottom: 30 },
+            xAxis: { type: 'category', data: res.items.map(it => it.hour + '时'),
+                     axisLabel: Object.assign({ interval: 2 }, textStyle) },
+            yAxis: { type: 'value', name: '分钟', axisLabel: textStyle, nameTextStyle: textStyle },
+            series: [{
+                type: 'bar',
+                data: res.items.map((it, i) => ({
+                    value: it.minutes,
+                    itemStyle: { color: i === maxIdx ? GOLD : 'rgba(52,152,219,0.7)', borderRadius: [6, 6, 0, 0] }
+                }))
+            }],
+            graphic: res.items[maxIdx] && res.items[maxIdx].minutes > 0 ? [{
+                type: 'text', right: 30, top: 10,
+                style: { text: '🌟 你的黄金时段：' + maxIdx + '时', fill: GOLD, fontSize: 14 }
+            }] : []
+        });
+    });
+
+    // ===== 热力日历 =====
+    const heatChart = echarts.init(document.getElementById('heatChart'));
+    fetch('/api/report/heatmap').then(r => r.json()).then(res => {
+        if (!res.success) return;
+        const maxV = Math.max(...res.data.map(d => d[1]), 1);
+        heatChart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { formatter: p => p.value[0] + '：' + p.value[1] + ' 分钟' },
+            visualMap: {
+                min: 0, max: maxV, calculable: false, orient: 'horizontal',
+                left: 'center', bottom: 0, show: false
+            },
+            calendar: {
+                top: 40, left: 60, right: 30, cellSize: ['auto', 16],
+                range: [res.data[0][0], res.data[res.data.length - 1][0]],
+                itemStyle: { color: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' },
+                yearLabel: { show: false },
+                monthLabel: { color: 'rgba(255,255,255,0.7)' },
+                dayLabel: { color: 'rgba(255,255,255,0.5)' }
+            },
+            series: [{
+                type: 'heatmap', coordinateSystem: 'calendar', data: res.data,
+                itemStyle: { borderRadius: 3 }
+            }]
+        });
+    });
+
+    loadTrend(7, null);
+    // 默认激活第一个按钮
+    document.querySelector('.range-btn').classList.add('active');
+    window.addEventListener('resize', () => { trendChart.resize(); catChart.resize(); hourChart.resize(); heatChart.resize(); });
+</script>
+</body>
+</html>

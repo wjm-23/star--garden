@@ -1,0 +1,35 @@
+# 配置模板：复制为 application.properties 后按本机环境填写。
+# 真实配置含数据库密码与 JWT 密钥，已加入 .gitignore，不进版本库。
+
+spring.application.name=star-garden
+server.port=8081
+
+# ======== MySQL 8.x 数据源配置 ========
+spring.datasource.url=jdbc:mysql://localhost:3306/star_garden?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+spring.datasource.driverClassName=com.mysql.cj.jdbc.Driver
+spring.datasource.username=root
+spring.datasource.password=请填写本机MySQL密码
+
+# ======== JPA / Hibernate 配置 ========
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=false
+spring.jpa.defer-datasource-initialization=true
+
+spring.sql.init.mode=embedded
+spring.sql.init.continue-on-error=true
+
+# ======== Thymeleaf ========
+spring.thymeleaf.cache=false
+
+# ======== 日志配置 ========
+logging.level.com.stargarden=INFO
+logging.level.org.hibernate.SQL=WARN
+
+# ======== JWT 开发者 API 令牌（Bearer 双通道鉴权） ========
+# 请自行生成一个足够长的随机字符串，不要沿用仓库里的示例值
+app.jwt.secret=请填写至少32位的随机字符串作为JWT密钥
+app.jwt.expire-minutes=1440
+
+# ======== 模拟数据播种（60个模拟用户+专注记录，供推荐算法离线评估，仅首次启动生效） ========
+app.data.seed=true

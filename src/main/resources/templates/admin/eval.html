@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>推荐算法离线评估 - 星芽花园</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="/lib/echarts.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a2a3a 0%, #0d1b2a 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', 'Poppins', 'Microsoft YaHei', sans-serif;
+        }
+        .container { padding-top: 30px; padding-bottom: 40px; }
+        .home-btn {
+            position: fixed; bottom: 25px; right: 25px;
+            background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+            border-radius: 50px; padding: 12px 24px; color: white;
+            text-decoration: none; z-index: 100;
+        }
+        .home-btn:hover { background: rgba(255,215,0,0.8); color: #1a2a3a; }
+        .page-card {
+            background: rgba(255,255,255,0.1); backdrop-filter: blur(15px);
+            border-radius: 30px; padding: 28px;
+            border: 1px solid rgba(255,255,255,0.2); margin-bottom: 25px;
+        }
+        .page-title { color: #FFD700; margin-bottom: 8px; }
+        .sub-title { color: rgba(255,255,255,0.6); font-size: 0.9rem; margin-bottom: 20px; }
+        .eval-table { color: white; }
+        .eval-table th { color: #FFD700; border-color: rgba(255,255,255,0.2); text-align: center; }
+        .eval-table td { border-color: rgba(255,255,255,0.15); text-align: center; }
+        .eval-table td.model { font-weight: 600; color: white; }
+        .eval-table tr.full-row { background: rgba(255,215,0,0.12); }
+        .chart-box { width: 100%; height: 380px; }
+        footer { text-align: center; color: rgba(255,255,255,0.5); font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="page-card">
+        <h2 class="page-title">🧪 推荐算法离线评估（消融实验）</h2>
+        <p class="sub-title" th:text="'留一时间法：每用户按时间 80% 训练 / 20% 测试 · 评估耗时 ' + ${costMs} + ' ms · 验证混合推荐算法相较基础协同过滤的效果提升'">
+            留一时间法评估
+        </p>
+        <div class="table-responsive">
+            <table class="table eval-table align-middle">
+                <thead>
+                <tr>
+                    <th>模型</th>
+                    <th>说明</th>
+                    <th>Precision@3</th>
+                    <th>Recall@3</th>
+                    <th>Precision@5</th>
+                    <th>Recall@5</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${results}">
+                    <td class="model" th:text="${row.key}">FULL</td>
+                    <td style="font-size:0.85rem;" th:text="${modelDesc[row.key]}"></td>
+                    <td th:text="${#numbers.formatDecimal(row.value['P@3'], 1, 4)}">0.0000</td>
+                    <td th:text="${#numbers.formatDecimal(row.value['R@3'], 1, 4)}">0.0000</td>
+                    <td th:text="${#numbers.formatDecimal(row.value['P@5'], 1, 4)}">0.0000</td>
+                    <td th:text="${#numbers.formatDecimal(row.value['R@5'], 1, 4)}">0.0000</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <p style="color:rgba(255,255,255,0.55); font-size:0.85rem;">
+            * 参与评估的用户数：[[${results['FULL'] != null ? results['FULL']['评估用户数'] : 0}]]
+            * 指标为全体测试用户的宏平均（Macro Average）</p>
+    </div>
+
+    <div class="page-card">
+        <h5 style="color:white;">指标对比图</h5>
+        <div id="evalChart" class="chart-box"></div>
+    </div>
+
+    <footer>©  202339170206 魏佳冕 - 星芽花园</footer>
+</div>
+<a href="/admin/users" class="home-btn">👑 后台管理</a>
+
+<script th:inline="javascript">
+    const modelNames = /*[[${#lists.toList(results.keySet())}]]*/ [];
+    const seriesData = /*[[${results}]]*/ {};
+</script>
+<script>
+    const colors = { 'POPULAR': '#95a5a6', 'CF': '#3498db', 'CF+DECAY': '#9b59b6', 'CF+TAG': '#2ecc71', 'FULL': '#FFD700' };
+    const metrics = ['P@3', 'R@3', 'P@5', 'R@5'];
+    const chart = echarts.init(document.getElementById('evalChart'));
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis' },
+        legend: { data: modelNames, textStyle: { color: 'rgba(255,255,255,0.85)' }, top: 0 },
+        grid: { left: 60, right: 30, top: 45, bottom: 35 },
+        xAxis: { type: 'category', data: metrics, axisLabel: { color: 'rgba(255,255,255,0.85)' } },
+        yAxis: { type: 'value', name: '指标值', axisLabel: { color: 'rgba(255,255,255,0.85)' },
+                 nameTextStyle: { color: 'rgba(255,255,255,0.85)' }, max: 1 },
+        series: modelNames.map(name => ({
+            name: name, type: 'line',
+            data: metrics.map(m => seriesData[name] ? seriesData[name][m] : 0),
+            lineStyle: { width: name === 'FULL' ? 4 : 2, color: colors[name] || '#fff' },
+            itemStyle: { color: colors[name] || '#fff' },
+            symbol: 'circle', symbolSize: name === 'FULL' ? 10 : 7
+        }))
+    });
+    window.addEventListener('resize', () => chart.resize());
+</script>
+</body>
+</html>

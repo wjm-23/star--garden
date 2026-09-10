@@ -1,0 +1,57 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### 安全：本地数据库密码与登录态 ###
+src/main/resources/application.properties
+c3.txt
+cookie2.txt
+cookie*.txt
+backup_*.txt
+
+### 运行日志与 H2 数据库文件 ###
+*.log
+run.log
+data/*.mv.db
+data/*.trace.db
+
+### 调试期抓取的页面快照 ###
+enc.html
+enc2.html
+hist.html
+hist_now.html
+tasks_hall2.html
+tasks_page2.html
+tasks_v2.html
+v_admin.html
+profile_v2.html
