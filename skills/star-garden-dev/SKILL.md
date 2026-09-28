@@ -1,6 +1,6 @@
 ---
 name: star-garden-dev
-description: star-garden（星花园）毕业设计项目的开发助手。当用户提到 star-garden / 星花园 / 专注花园 / 毕业论文项目，需要读改代码、调推荐算法、跑消融实验、启停服务、查 H2/MySQL 数据、改前端页面时使用。覆盖 Spring Boot 3.5 + Thymeleaf + JPA 架构、混合推荐算法（UserCF + 标签相似度 + 时段匹配）、Precision@N / Recall@N 消融评估、构建运行与数据播种。
+description: star-garden（星芽花园）毕业设计项目的开发助手。当用户提到 star-garden / 星芽花园 / 专注花园 / 毕业论文项目，需要读改代码、调推荐算法、跑消融实验、启停服务、查 H2/MySQL 数据、改前端页面时使用。覆盖 Spring Boot 3.5 + Thymeleaf + JPA 架构、混合推荐算法（UserCF + 标签相似度 + 时段匹配）、Precision@N / Recall@N 消融评估、构建运行与数据播种。
 agent_created: true
 ---
 

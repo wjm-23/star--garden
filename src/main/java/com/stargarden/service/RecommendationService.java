@@ -76,8 +76,9 @@ public class RecommendationService {
         Map<String, Double> slotScores = slotScores(userHourHist, categoryHourDist, currentHour);
 
         // 类别 -> 任务大厅中该类别的启用任务（推荐结果必须是大厅里能直接开始的真任务）
+        // 分类优先取任务自身配置的 category，保证推荐分类与任务大厅展示标签完全一致
         Map<String, List<FocusTask>> tasksByCategory = focusTaskService.listEnabled().stream()
-                .collect(Collectors.groupingBy(t -> TaskCategoryUtil.derive(t.getTaskName())));
+                .collect(Collectors.groupingBy(t -> TaskCategoryUtil.resolve(t.getCategory(), t.getTaskName())));
 
         List<RecommendationItem> items = new ArrayList<>();
         for (String category : ALL_CATEGORIES) {

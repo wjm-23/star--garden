@@ -1,13 +1,17 @@
 package com.stargarden.service;
 
+import com.stargarden.entity.Achievement;
 import com.stargarden.entity.FocusTask;
 import com.stargarden.entity.FriendLike;
 import com.stargarden.entity.Plant;
 import com.stargarden.entity.TaskRecord;
 import com.stargarden.entity.User;
+import com.stargarden.entity.UserGarden;
+import com.stargarden.repository.AchievementRepository;
 import com.stargarden.repository.FriendLikeRepository;
 import com.stargarden.repository.PlantRepository;
 import com.stargarden.repository.TaskRecordRepository;
+import com.stargarden.repository.UserGardenRepository;
 import com.stargarden.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,9 +22,12 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -32,7 +39,8 @@ import java.util.stream.Collectors;
  * - 植物/管理员：仅在不存在的空库时创建，不触碰已有数据；
  * - 模拟用户 sim01~sim60：以「sim01 是否存在」为播种条件（而非记录表是否为空），
  *   因此真实用户的历史记录不会被清空或覆盖；
- * - 模拟行为记录的任务名取自任务大厅真实配置的专注任务，保证推荐结果可落地执行。
+ * - 模拟行为记录的任务名取自任务大厅真实配置的专注任务，保证推荐结果可落地执行；
+ * - 模拟用户成就：按真实数据（植物数/连续打卡/点赞）推导后落库，使演示账号的成就页与自身数据一致。
  */
 @Component
 public class DataSeeder implements CommandLineRunner {
@@ -41,7 +49,10 @@ public class DataSeeder implements CommandLineRunner {
     @Autowired private UserRepository userRepository;
     @Autowired private TaskRecordRepository taskRecordRepository;
     @Autowired private FriendLikeRepository friendLikeRepository;
+    @Autowired private UserGardenRepository userGardenRepository;
+    @Autowired private AchievementRepository achievementRepository;
     @Autowired private FocusTaskService focusTaskService;
+    @Autowired private GardenService gardenService;
     @Autowired private PasswordEncoder passwordEncoder;
 
     /** 是否允许生成模拟数据集（application.properties: app.data.seed） */
@@ -82,6 +93,10 @@ public class DataSeeder implements CommandLineRunner {
         if (seedEnabled && userRepository.findByUsername("sim01").isEmpty()) {
             seedSimulationData();
         }
+        // 历史库补播：早期版本播种不含模拟用户花园，重启时按真实专注记录补种（幂等，user_garden 非空即跳过）
+        seedGardensForSimUsers();
+        // 历史库补播：早期版本未给模拟用户写 achievement 表，导致演示账号"成就与自身数据对不上"，此处按真实数据补齐
+        seedAchievementsForSimUsers();
     }
 
     /** 植物图鉴为空时插入 6 种初始植物（空库兜底，已有图鉴时跳过） */
@@ -138,7 +153,7 @@ public class DataSeeder implements CommandLineRunner {
         List<String> categories = List.of("学习", "阅读", "运动", "早起", "冥想", "工作", "生活");
         // 类别 -> 任务大厅中该类别的启用任务（任务名/奖励植物均来自管理员真实配置）
         Map<String, List<FocusTask>> tasksByCategory = focusTaskService.listEnabled().stream()
-                .collect(Collectors.groupingBy(t -> TaskCategoryUtil.derive(t.getTaskName())));
+                .collect(Collectors.groupingBy(t -> TaskCategoryUtil.resolve(t.getCategory(), t.getTaskName())));
 
         List<User> users = new ArrayList<>();
         List<String[]> profiles = new ArrayList<>(); // 每人：偏好类别1、偏好类别2（可空）、时段索引
@@ -239,6 +254,176 @@ public class DataSeeder implements CommandLineRunner {
 
         System.out.printf("[DataSeeder] 模拟数据集生成完毕：用户 %d，行为记录 %d，好友点赞 %d，耗时 %d ms%n",
                 users.size(), records.size(), likes.size(), System.currentTimeMillis() - start);
+    }
+
+    /**
+     * 历史库/新库花园播种：为模拟用户生成 3×3 花园（好友页迷你预览可展示）。
+     *
+     * 生长阶段按「真实投入梯度」播种：早期版本把种下时间设为过去随机值，会让植株在"刚种下"时就凭空处于开花，
+     * 没有发芽→成长的成长过程。现改为——先按各植物「同类专注总分钟」（即该植物的经验）降序排名，
+     * 排名前 1/3 设为「开花」、中 1/3 设为「成长」、后 1/3 设为「发芽」；再用真实经验函数
+     * （{@link GardenService#plantGrowthMinutes}）反推一个"种下时刻"，使该株在种下后累计的同类专注分钟
+     * 恰好落在目标阶段区间——于是开花是"练出来的"，每株都有成长过程支撑。
+     * 同时回填 totalPlants 与真实连续打卡天数（从最近活跃日向前连续计数）。
+     * 幂等：按用户级检查，花园已有数据的用户（含真实用户历史种植）跳过；只处理 sim 开头用户，真实用户花园不受影响。
+     */
+    private void seedGardensForSimUsers() {
+        if (userRepository.findByUsername("sim01").isEmpty()) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        List<UserGarden> gardens = new ArrayList<>();
+        List<User> toUpdate = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        for (User u : userRepository.findAll()) {
+            if (u.getUsername() == null || !u.getUsername().startsWith("sim")) {
+                continue;
+            }
+            // 按用户级幂等：该用户花园已有数据则跳过（真实用户种植过的记录不受影响，也不会被误判为已补播）
+            if (!userGardenRepository.findByUserId(u.getId()).isEmpty()) {
+                continue;
+            }
+            List<TaskRecord> recs = taskRecordRepository.findByUserId(u.getId());
+            if (recs.isEmpty()) {
+                continue;
+            }
+            // 连续打卡天数：从今天（或昨天）起向前数连续有专注记录的天数
+            List<LocalDate> activeDays = recs.stream()
+                    .map(r -> r.getCompletedTime().toLocalDate())
+                    .collect(Collectors.toList());
+            LocalDate cursor = activeDays.contains(today) ? today
+                    : (activeDays.contains(today.minusDays(1)) ? today.minusDays(1) : null);
+            int streak = 0;
+            while (cursor != null && activeDays.contains(cursor)) {
+                streak++;
+                cursor = cursor.minusDays(1);
+            }
+
+            // 按植物分组（仅保留有 plantId 的记录），组内按完成时间升序，便于反推种下时刻
+            Map<Long, List<TaskRecord>> byPlant = recs.stream()
+                    .filter(r -> r.getPlantId() != null)
+                    .collect(Collectors.groupingBy(TaskRecord::getPlantId));
+            if (byPlant.isEmpty()) {
+                continue;
+            }
+            byPlant.values().forEach(list -> list.sort(Comparator.comparing(TaskRecord::getCompletedTime)));
+
+            // 按「同类专注总分钟」（= 该植物的经验投入）降序排名，取前 9 种入选花园 3×3
+            List<Long> ranked = byPlant.entrySet().stream()
+                    .sorted(Comparator.comparingLong(
+                            (Map.Entry<Long, List<TaskRecord>> e) -> sumMinutes(e.getValue())).reversed())
+                    .limit(9)
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toList());
+            int n = ranked.size();
+            int bloomCount = n / 3;   // 投入最高的 1/3 → 开花
+            int growCount = n / 3;    // 次 1/3 → 成长；其余 → 发芽
+            Map<Long, Integer> stageByPlant = new HashMap<>();
+            for (int r = 0; r < n; r++) {
+                stageByPlant.put(ranked.get(r), r < bloomCount ? 2 : (r < bloomCount + growCount ? 1 : 0));
+            }
+
+            // 按「真实投入梯度」种入 3×3：每株的种下时刻由目标阶段反推，保证开花/成长都有投入支撑
+            int idx = 0;
+            for (int x = 0; x < 3; x++) {
+                for (int y = 0; y < 3; y++) {
+                    Long plantId = ranked.get(idx % n);
+                    UserGarden g = new UserGarden();
+                    g.setUserId(u.getId());
+                    g.setPlantId(plantId);
+                    g.setPositionX(x);
+                    g.setPositionY(y);
+                    g.setPlantTime(plantTimeForStage(byPlant.get(plantId), stageByPlant.get(plantId)));
+                    gardens.add(g);
+                    idx++;
+                }
+            }
+            u.setTotalPlants(9);
+            u.setConsecutiveDays(streak);
+            toUpdate.add(u);
+        }
+        userGardenRepository.saveAll(gardens);
+        userRepository.saveAll(toUpdate);
+        System.out.printf("[DataSeeder] 模拟用户花园播种：%d 人 x 9 株（按投入梯度），耗时 %d ms%n",
+                toUpdate.size(), System.currentTimeMillis() - start);
+    }
+
+    /** 一组记录的总专注分钟（即该植物的经验投入），用于投入排名 */
+    private static long sumMinutes(List<TaskRecord> records) {
+        long sum = 0;
+        for (TaskRecord r : records) {
+            sum += r.getDurationMinutes() == null ? 0 : r.getDurationMinutes();
+        }
+        return sum;
+    }
+
+    /**
+     * 反推「种下时刻」，使该株植物在种下后累计的同类专注分钟恰好落在目标阶段区间：
+     * 0=发芽（种下后尚无同类投入）、1=成长（30~119 分）、2=开花（≥120 分）。
+     * 做法：以该植物每条记录时间点前 1 分钟作为候选种下时刻，用真实经验函数校验其阶段，取第一个命中的候选；
+     * 因记录按时间升序，首个命中即为"刚好达到该阶段"的种下时刻（开花植株因此有 ≥120 分的成长投入支撑）。
+     * 若该植物总投入不足以达到目标阶段，则退化为最早记录之前种下（经验最大化）。
+     */
+    private LocalDateTime plantTimeForStage(List<TaskRecord> plantRecords, int targetStage) {
+        if (targetStage <= 0 || plantRecords == null || plantRecords.isEmpty()) {
+            // 刚种下：历史记录都发生在种下之前，经验为 0 → 发芽
+            return LocalDateTime.now();
+        }
+        Long plantId = plantRecords.get(0).getPlantId();
+        for (TaskRecord r : plantRecords) {
+            LocalDateTime cut = r.getCompletedTime().minusMinutes(1);
+            long xp = GardenService.plantGrowthMinutes(plantRecords, plantId, cut);
+            if (GardenService.growthStageOf(xp) == targetStage) {
+                return cut;
+            }
+        }
+        return plantRecords.get(0).getCompletedTime().minusMinutes(1);
+    }
+
+    /**
+     * 模拟用户成就补播：早期版本的播种流程只生成行为记录、花园与好友点赞，未写入 achievement 表，
+     * 于是演示账号（sim01~sim60）打开成就页时"已种植却全显示未解锁"，与实际数据对不上。
+     * 本方法复用 {@link GardenService#deriveAchievementTypes} 的同一套推导规则
+     * （累计植物数 / 连续打卡天数 / 点赞与被赞次数），为模拟用户补齐应得成就，
+     * 与真实用户共用同一事实来源，保证演示数据自洽、可复现。
+     * 幂等：按「成就类型」去重，缺失的才补；只处理 sim 开头用户，真实用户数据不受影响。
+     * 注意：必须在花园与好友点赞播种之后调用，否则推导依据（totalPlants/consecutiveDays/点赞数）尚未就绪。
+     */
+    private void seedAchievementsForSimUsers() {
+        if (userRepository.findByUsername("sim01").isEmpty()) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        List<Achievement> toSave = new ArrayList<>();
+        int userCount = 0;
+        for (User u : userRepository.findAll()) {
+            if (u.getUsername() == null || !u.getUsername().startsWith("sim")) {
+                continue;
+            }
+            // 按「成就类型」去重补齐：已有该类型则跳过，缺失的才补，兼容只有部分成就的账号
+            Set<String> existing = achievementRepository.findByUserId(u.getId()).stream()
+                    .map(Achievement::getAchievementType)
+                    .collect(Collectors.toSet());
+            boolean added = false;
+            for (String type : gardenService.deriveAchievementTypes(u)) {
+                if (existing.contains(type)) {
+                    continue;
+                }
+                Achievement a = new Achievement();
+                a.setUserId(u.getId());
+                a.setAchievementType(type);
+                // 达成时间落在播种窗口内，使演示数据的时间分布更自然
+                a.setAchievedTime(LocalDateTime.now().minusDays(RANDOM.nextInt(SIM_DAYS)));
+                toSave.add(a);
+                added = true;
+            }
+            if (added) {
+                userCount++;
+            }
+        }
+        achievementRepository.saveAll(toSave);
+        System.out.printf("[DataSeeder] 模拟用户成就补播：%d 人，共 %d 条，耗时 %d ms%n",
+                userCount, toSave.size(), System.currentTimeMillis() - start);
     }
 
     /** 大厅未配置该类别任务时，从内置任务池取一个具体任务名（完成时按任务名推导类别，链路闭环） */

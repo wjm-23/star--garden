@@ -11,7 +11,7 @@ spring.datasource.username=root
 spring.datasource.password=请填写本机MySQL密码
 
 # ======== JPA / Hibernate 配置 ========
-spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=false
 spring.jpa.defer-datasource-initialization=true
@@ -19,12 +19,13 @@ spring.jpa.defer-datasource-initialization=true
 spring.sql.init.mode=embedded
 spring.sql.init.continue-on-error=true
 
-# ======== Thymeleaf ========
-spring.thymeleaf.cache=false
-
 # ======== 日志配置 ========
 logging.level.com.stargarden=INFO
 logging.level.org.hibernate.SQL=WARN
+
+# ======== OpenAPI 接口文档（/swagger-ui.html） ========
+springdoc.paths-to-match=/api/**
+springdoc.swagger-ui.path=/swagger-ui.html
 
 # ======== JWT 开发者 API 令牌（Bearer 双通道鉴权） ========
 # 请自行生成一个足够长的随机字符串，不要沿用仓库里的示例值

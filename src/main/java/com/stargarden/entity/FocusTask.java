@@ -12,6 +12,7 @@ public class FocusTask {
     private Long id;
 
     private String taskName;       // 任务名称（如：学习、阅读）
+    private String category;       // 任务分类（学习/阅读/运动/早起/冥想/工作/生活），分类的单一事实来源，管理员可维护
     private String description;   // 任务描述
     private Integer defaultMinutes = 25; // 默认专注时长（分钟）
     private Long plantId;         // 关联植物 ID（来自 plant 表）

@@ -4,16 +4,29 @@
 -- 学号：202339170206  姓名：魏佳冕
 -- =====================================================
 
--- 插入植物数据（使用 INSERT IGNORE 避免重复插入）
-INSERT IGNORE INTO plant (id, name, description, image_url, rarity) VALUES
-    (1, '智慧藤', '完成学习任务获得', NULL, 'COMMON'),
-    (2, '专注花', '完成阅读任务获得', NULL, 'COMMON'),
-    (3, '活力草', '完成运动任务获得', NULL, 'COMMON'),
-    (4, '晨光花', '完成早起任务获得', NULL, 'RARE'),
-    (5, '宁静叶', '完成冥想任务获得', NULL, 'COMMON'),
-    (6, '星芽草', '默认植物', NULL, 'COMMON');
+-- 先清空旧数据，再插入 18 种植物（与 PlantTaskType 枚举对齐）
+DELETE FROM plant;
 
--- 插入管理员账号（使用 INSERT IGNORE 避免重复插入）
--- 注意：密码将在第4步安全加固中改为 BCrypt 加密
-INSERT IGNORE INTO users (id, username, email, password, nickname, role, enabled, consecutive_days, total_plants, create_time) VALUES
-    (1, 'admin', 'admin@star-garden.com', 'admin123', '管理员', 'ADMIN', TRUE, 0, 0, NOW());
+-- 插入植物数据（18 种，覆盖 6 个类别各 3 种稀有度）
+INSERT IGNORE INTO plant (id, name, description, image_url, rarity, icon) VALUES
+    (1,  '智慧藤',  '完成学习任务获得', '🌿',  'COMMON', '📚🌿'),
+    (2,  '专注花',  '完成阅读任务获得', '🌸',  'COMMON', '🎯🌸'),
+    (3,  '活力草',  '完成运动任务获得', '🍀',  'COMMON', '💪🍃'),
+    (4,  '晨光花',  '完成早起任务获得', '🌅',  'RARE',   '🌅🌻'),
+    (5,  '宁静叶',  '完成冥想任务获得', '🍃',  'COMMON', '🧘🍀'),
+    (6,  '星芽草',  '默认植物',       '🌱',  'COMMON', '✨🌱'),
+    (7,  '灵感菇',  '完成创造类专注获得','🍄', 'COMMON', '🍄'),
+    (8,  '韵律兰',  '完成音乐类专注获得','🌷', 'RARE',   '🌷'),
+    (9,  '逻辑松',  '完成编程类专注获得','🌲', 'RARE',   '🌲'),
+    (10, '思绪苇',  '完成写作类专注获得','🪶', 'COMMON', '🪶'),
+    (11, '记忆蕨',  '完成记忆训练获得',  '🌾', 'COMMON', '🌾'),
+    (12, '安眠星草','完成睡眠冥想获得',  '✨', 'RARE',   '✨'),
+    (13, '自律棘',  '完成自律打卡获得',  '🌵', 'RARE',   '🌵'),
+    (14, '联结藤',  '完成社交专注获得',  '💮', 'EPIC',   '💮'),
+    (15, '远见葵',  '完成规划类专注获得', '🌻','EPIC',   '🌞'),
+    (16, '静心茗',  '完成品茶冥想获得',  '🍵', 'EPIC',   '🍵'),
+    (17, '烟火椒',  '完成烹饪类专注获得', '🌶️','EPIC',  '🌶️'),
+    (18, '秩序苔',  '完成整理类专注获得', '🪴', 'EPIC',  '🪴');
+
+-- 管理员账号由 DataSeeder.seedAdmin() 统一创建（BCrypt 加密存储），
+-- 此处不能用明文插入：登录走 BCrypt 比对，明文口令会导致 admin 无法登录。

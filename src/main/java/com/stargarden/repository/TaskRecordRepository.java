@@ -13,6 +13,9 @@ public interface TaskRecordRepository extends JpaRepository<TaskRecord, Long> {
 
     List<TaskRecord> findByUserId(Long userId);
 
+    /** 管理端删除用户时级联清理其专注记录 */
+    void deleteByUserId(Long userId);
+
     List<TaskRecord> findByUserIdOrderByCompletedTimeAsc(Long userId);
 
     /** 用户某天累计专注时长（协作房间好友 PK 使用） */

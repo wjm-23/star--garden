@@ -36,6 +36,12 @@ public class FocusRoomEndpoint {
 
     /** roomId -> 房间成员会话集合 */
     private static final Map<String, Set<Session>> ROOMS = new ConcurrentHashMap<>();
+    /** roomId -> 房主（创建者）uid；房间只能由房主解散 */
+    private static final Map<String, Long> HOST = new ConcurrentHashMap<>();
+    /** 空房间保留时长（毫秒）：创建者短暂离开/刷新后房间不立即消失，方便其他人加入 */
+    private static final long EMPTY_ROOM_TTL_MS = 60_000;
+    /** roomId -> 房间变空的时间戳（毫秒） */
+    private static final Map<String, Long> EMPTY_SINCE = new ConcurrentHashMap<>();
     /** websocket sessionId -> 成员信息 {uid, uname} */
     private static final Map<String, Map<String, Object>> MEMBERS = new ConcurrentHashMap<>();
     /** websocket sessionId -> 是否专注中 */
@@ -55,7 +61,10 @@ public class FocusRoomEndpoint {
         member.put("uname", params.getOrDefault("uname", List.of("访客")).get(0));
         MEMBERS.put(session.getId(), member);
         FOCUSING.put(session.getId(), false);
+        // 第一个进入房间的人即为房主（创建者）
+        boolean isFirst = !ROOMS.containsKey(roomId);
         ROOMS.computeIfAbsent(roomId, k -> new CopyOnWriteArraySet<>()).add(session);
+        if (isFirst) HOST.put(roomId, (Long) member.get("uid"));
         broadcast(roomId, Map.of("type", "system",
                 "msg", member.get("uname") + " 进入了房间",
                 "members", members(roomId)));
@@ -87,6 +96,7 @@ public class FocusRoomEndpoint {
             }
             case "chat" -> broadcast(roomId, Map.of("type", "chat", "who", uname, "msg", String.valueOf(m.get("msg"))));
             case "pk" -> broadcast(roomId, Map.of("type", "pk", "board", pkBoard(roomId)));
+            case "delete-room" -> handleDeleteRoom(session, roomId);
             default -> { }
         }
     }
@@ -105,8 +115,23 @@ public class FocusRoomEndpoint {
         }
         MEMBERS.remove(session.getId());
         FOCUSING.remove(session.getId());
+        // 房主离开后房间还有人：房主自动转移给剩余第一位成员，保证"解散"权限不丢失
+        if (!room.isEmpty()) {
+            Long hostUid = HOST.get(roomId);
+            boolean hostStillHere = room.stream().anyMatch(s -> {
+                Map<String, Object> i = MEMBERS.get(s.getId());
+                return i != null && hostUid != null && hostUid.equals(i.get("uid"));
+            });
+            if (!hostStillHere) {
+                for (Session s : room) {
+                    Map<String, Object> i = MEMBERS.get(s.getId());
+                    if (i != null && i.get("uid") instanceof Long u) { HOST.put(roomId, u); break; }
+                }
+            }
+        }
         if (room.isEmpty()) {
-            ROOMS.remove(roomId);
+            // 空房间不立即销毁，保留 EMPTY_ROOM_TTL_MS 供他人加入（activeRooms 惰性过期）
+            EMPTY_SINCE.put(roomId, System.currentTimeMillis());
         } else {
             try {
                 broadcast(roomId, Map.of("type", "system", "msg", uname + " 离开了房间", "members", members(roomId)));
@@ -119,17 +144,20 @@ public class FocusRoomEndpoint {
         // 单连接异常不中断房间
     }
 
-    /** 房间成员实时状态列表 */
+    /** 房间成员实时状态列表（含 uid 与 host 标记，供前端判断房主） */
     private List<Map<String, Object>> members(String rid) {
         List<Map<String, Object>> list = new ArrayList<>();
         Set<Session> room = ROOMS.get(rid);
         if (room == null) return list;
+        Long hostUid = HOST.get(rid);
         for (Session s : room) {
             Map<String, Object> info = MEMBERS.get(s.getId());
             if (info == null) continue;
             Map<String, Object> mm = new HashMap<>();
             mm.put("name", info.get("uname"));
+            mm.put("uid", info.get("uid"));
             mm.put("focusing", FOCUSING.getOrDefault(s.getId(), false));
+            mm.put("host", hostUid != null && hostUid.equals(info.get("uid")));
             list.add(mm);
         }
         return list;
@@ -170,6 +198,41 @@ public class FocusRoomEndpoint {
         }
     }
 
+    /** 仅向单个会话发送消息（用于权限校验失败的错误提示） */
+    private void sendTo(Session s, Map<String, Object> payload) throws Exception {
+        if (s != null && s.isOpen()) {
+            synchronized (s) {
+                s.getBasicRemote().sendText(MAPPER.writeValueAsString(payload));
+            }
+        }
+    }
+
+    /**
+     * 房主解散房间：只有房主（创建者）可操作。
+     * 先广播 room-deleted 通知所有成员，再逐个关闭会话并清理房间状态。
+     */
+    private void handleDeleteRoom(Session session, String rid) throws Exception {
+        Map<String, Object> info = MEMBERS.get(session.getId());
+        long uid = info != null && info.get("uid") instanceof Long l ? l : 0L;
+        Long hostUid = HOST.get(rid);
+        if (hostUid == null || hostUid != uid) {
+            sendTo(session, Map.of("type", "error", "msg", "只有房主可以解散房间"));
+            return;
+        }
+        Set<Session> room = ROOMS.get(rid);
+        if (room == null) return;
+        String dead = MAPPER.writeValueAsString(Map.of("type", "room-deleted"));
+        for (Session s : new ArrayList<>(room)) {
+            try { s.getBasicRemote().sendText(dead); } catch (Exception ignored) { }
+        }
+        for (Session s : new ArrayList<>(room)) {
+            try { s.close(); } catch (Exception ignored) { }
+        }
+        ROOMS.remove(rid);
+        HOST.remove(rid);
+        EMPTY_SINCE.remove(rid);
+    }
+
     /**
      * 服务端结算专注时长并写入任务记录：
      * 以服务端时钟差计算实际专注分钟数（最低按 1 分钟计），防止客户端伪造时长；
@@ -194,10 +257,22 @@ public class FocusRoomEndpoint {
         return minutes;
     }
 
-    /** 当前活跃房间列表（供 /api/rooms 展示） */
+    /** 当前活跃房间列表（供 /api/rooms 展示）；惰性清理超过保留时长的空房间 */
     public static List<Map<String, Object>> activeRooms() {
         List<Map<String, Object>> list = new ArrayList<>();
+        long now = System.currentTimeMillis();
         ROOMS.forEach((rid, sessions) -> {
+            if (sessions.isEmpty()) {
+                Long since = EMPTY_SINCE.get(rid);
+                if (since != null && now - since > EMPTY_ROOM_TTL_MS) {
+                    ROOMS.remove(rid);
+                    HOST.remove(rid);
+                    EMPTY_SINCE.remove(rid);
+                    return;
+                }
+            } else {
+                EMPTY_SINCE.remove(rid);
+            }
             Map<String, Object> row = new HashMap<>();
             row.put("roomId", rid);
             row.put("memberCount", sessions.size());
